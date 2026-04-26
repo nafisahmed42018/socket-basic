@@ -2,26 +2,25 @@
 const socket = io("http://localhost:4000");
 
 // ─── DOM references ───────────────────────────────────────────────────────────
-const messageList    = document.getElementById("messages");
-const form           = document.getElementById("messages-form");
-const input          = document.getElementById("user-message");
-const connectionDot  = document.getElementById("connection-dot");
-const connectionLabel= document.getElementById("connection-label");
-const notification   = document.getElementById("notification");
-const userListEl     = document.getElementById("user-list");
+const messageList     = document.getElementById("messages");
+const form            = document.getElementById("messages-form");
+const input           = document.getElementById("user-message");
+const connectionDot   = document.getElementById("connection-dot");
+const connectionLabel = document.getElementById("connection-label");
+const notification    = document.getElementById("notification");
+const userListEl      = document.getElementById("user-list");
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const MAX_MESSAGE_LENGTH = 500;
 
 // ─── Identity ─────────────────────────────────────────────────────────────────
-// generate a short guest username from the socket ID once we connect
-// keeps the UI personal without needing a login flow
 let myUsername = "";
 
-// 8 distinct hues cycled through when assigning avatar colours
 const AVATAR_COLORS = [
   "#4c6ef5","#f03e3e","#37b24d","#f59f00",
   "#ae3ec9","#1098ad","#e8590c","#d6336c",
 ];
 
-// map socket-id → stable colour so the same user always has the same bubble colour
 const colorMap = {};
 
 function colorForId(id) {
@@ -33,12 +32,50 @@ function colorForId(id) {
 }
 
 // derive a short display name from a socket id (e.g. "Guest-3f2a")
+// socket IDs are alphanumeric so no escaping is needed, but we slice to 4
+// chars anyway to prevent any unexpectedly long or exotic IDs reaching the DOM
 function nameForId(id) {
   return "Guest-" + id.slice(0, 4);
 }
 
+// ─── Client-side sanitization ─────────────────────────────────────────────────
+// validate and clean text before it is emitted to the server
+// the server runs its own sanitization as well — this is the first line of defense
+function sanitizeInput(raw) {
+  if (typeof raw !== "string") return null;
+
+  // strip ASCII control characters (can smuggle terminal/HTML escape sequences)
+  const cleaned = raw.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "").trim();
+
+  if (cleaned.length === 0)                return null;
+  if (cleaned.length > MAX_MESSAGE_LENGTH) return null;
+
+  return cleaned;
+}
+
+// validate the shape of a payload received from the server before rendering
+// guards against a malicious or malfunctioning server sending unexpected data
+function isValidPayload(payload) {
+  return (
+    payload !== null &&
+    typeof payload === "object" &&
+    typeof payload.senderId === "string" && payload.senderId.length > 0 &&
+    typeof payload.text     === "string" && payload.text.length     > 0
+  );
+}
+
+// ─── Safe DOM helpers ─────────────────────────────────────────────────────────
+// create an element, set its text safely via textContent (never innerHTML),
+// optionally set a class name and inline style property
+function el(tag, { className, text, style } = {}) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text; // textContent never parses HTML
+  if (style) Object.assign(node.style, style);
+  return node;
+}
+
 // ─── Connection status ────────────────────────────────────────────────────────
-// update the dot and label in the header whenever the connection state changes
 function setConnectionStatus(status) {
   connectionDot.className = "connection-dot " + status;
   connectionLabel.textContent =
@@ -55,8 +92,8 @@ socket.on("disconnect", () => {
 });
 
 // ─── System notifications ─────────────────────────────────────────────────────
-// briefly show a join/leave notice in the bar above the input, then hide it
 function showNotification(text) {
+  // textContent is safe — no HTML interpretation
   notification.textContent = text;
   notification.classList.add("visible");
   clearTimeout(notification._timer);
@@ -66,33 +103,49 @@ function showNotification(text) {
 }
 
 // ─── Online user list (sidebar) ───────────────────────────────────────────────
-// rebuild the sidebar list from the full user array sent by the server
 function renderUserList(users) {
+  // validate: must be an array of non-empty strings
+  if (!Array.isArray(users)) return;
+
   userListEl.innerHTML = "";
+
   users.forEach((id) => {
+    if (typeof id !== "string" || id.length === 0) return;
+
     const name  = nameForId(id);
     const color = colorForId(id);
     const li    = document.createElement("li");
 
-    // coloured avatar circle showing the first letter of the username
-    li.innerHTML = `
-      <div class="user-avatar" style="background:${color}">${name[0].toUpperCase()}</div>
-      <span>${name}${id === socket.id ? " (you)" : ""}</span>
-    `;
+    // build the avatar and name using DOM methods, not innerHTML,
+    // so no value ever gets parsed as HTML
+    const avatar = el("div", {
+      className: "user-avatar",
+      text: name[0].toUpperCase(),
+      style: { background: color },
+    });
+
+    const label = el("span", {
+      text: name + (id === socket.id ? " (you)" : ""),
+    });
+
+    li.appendChild(avatar);
+    li.appendChild(label);
     userListEl.appendChild(li);
   });
 }
 
-// ─── Receive user list updates from the server ────────────────────────────────
 socket.on("userList", (users) => {
   renderUserList(users);
 });
 
 // ─── Receive broadcast messages ───────────────────────────────────────────────
-// track the last sender so consecutive messages are visually grouped together
 let lastSenderId = null;
 
-socket.on("messageFromServerToAllClients", ({ senderId, text }) => {
+socket.on("messageFromServerToAllClients", (payload) => {
+  // reject malformed payloads before touching the DOM
+  if (!isValidPayload(payload)) return;
+
+  const { senderId, text } = payload;
   const isSelf    = senderId === socket.id;
   const isGrouped = senderId === lastSenderId;
   lastSenderId    = senderId;
@@ -108,18 +161,28 @@ socket.on("messageFromServerToAllClients", ({ senderId, text }) => {
     isGrouped ? "message--grouped" : "",
   ].join(" ");
 
-  // meta line shows avatar dot + name + timestamp; hidden on grouped messages via CSS
-  li.innerHTML = `
-    <div class="message__meta">
-      <span style="color:${senderColor}">${senderName}</span>
-      <span>${time}</span>
-    </div>
-    <div class="message__bubble">${escapeHtml(text)}</div>
-  `;
+  // ── meta row (sender name + time) ──────────────────────────────────────────
+  // built with DOM methods so senderName and time are always plain text,
+  // never interpreted as markup regardless of what the server sends
+  const meta = el("div", { className: "message__meta" });
 
+  const nameSpan = el("span", { text: senderName });
+  nameSpan.style.color = senderColor; // senderColor comes from our own hardcoded palette
+
+  const timeSpan = el("span", { text: time });
+
+  meta.appendChild(nameSpan);
+  meta.appendChild(timeSpan);
+
+  // ── bubble ─────────────────────────────────────────────────────────────────
+  // textContent sets the message as plain text — the browser will never
+  // interpret it as HTML, so <script>, onerror=, etc. are all inert
+  const bubble = el("div", { className: "message__bubble", text });
+
+  li.appendChild(meta);
+  li.appendChild(bubble);
   messageList.appendChild(li);
 
-  // keep the feed scrolled to the latest message
   messageList.scrollTop = messageList.scrollHeight;
 });
 
@@ -127,22 +190,14 @@ socket.on("messageFromServerToAllClients", ({ senderId, text }) => {
 form.addEventListener("submit", (e) => {
   e.preventDefault();
 
-  const text = input.value.trim();
-  if (!text) return; // ignore blank submissions
+  const text = sanitizeInput(input.value);
+
+  // sanitizeInput returns null for blank, oversized, or control-char-only input
+  if (!text) {
+    input.value = "";
+    return;
+  }
 
   input.value = "";
-
-  // emit the message up to the server; the server will broadcast it to everyone
   socket.emit("messageFromClientToServer", text);
 });
-
-// ─── Utility: prevent XSS ────────────────────────────────────────────────────
-// escape any HTML in user-provided text before inserting into the DOM
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}

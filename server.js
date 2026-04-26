@@ -3,7 +3,6 @@ const { Server } = require("socket.io");
 
 const app = express();
 
-// serve the frontend/ folder as static files
 app.use(express.static("frontend"));
 
 const expressServer = app.listen(4000);
@@ -12,9 +11,30 @@ const io = new Server(expressServer, {
   cors: ["http://localhost:4000"],
 });
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+const MAX_MESSAGE_LENGTH = 500;
+// minimum milliseconds between messages from one socket (5 msg/sec)
+const RATE_LIMIT_MS = 200;
+
+// ─── Sanitization ─────────────────────────────────────────────────────────────
+// strip every ASCII control character (0x00–0x1F, 0x7F) except tab (0x09)
+// these can't be displayed and can be used to smuggle escape sequences
+function stripControlChars(str) {
+  return str.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
+}
+
+function sanitize(raw) {
+  if (typeof raw !== "string") return null;
+
+  const cleaned = stripControlChars(raw).trim();
+
+  if (cleaned.length === 0) return null; // blank after cleanup
+  if (cleaned.length > MAX_MESSAGE_LENGTH) return null; // oversized
+
+  return cleaned;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-// broadcast the current list of connected socket IDs to every client
-// the client derives display names from these IDs
 function broadcastUserList() {
   const ids = Array.from(io.sockets.sockets.keys());
   io.emit("userList", ids);
@@ -24,19 +44,27 @@ function broadcastUserList() {
 io.on("connection", (socket) => {
   console.log(socket.id, "connected — total:", io.sockets.sockets.size);
 
-  // send the updated user list to every client whenever someone joins
   broadcastUserList();
 
-  // "messageFromClientToServer" carries the raw text string from the sender
-  // wrap it with the sender's socket ID so the client can style self vs. others
-  socket.on("messageFromClientToServer", (text) => {
+  // track when this socket last successfully sent a message for rate limiting
+  let lastMessageAt = 0;
+
+  socket.on("messageFromClientToServer", (raw) => {
+    // rate limit: silently drop messages that arrive too fast
+    const now = Date.now();
+    if (now - lastMessageAt < RATE_LIMIT_MS) return;
+    lastMessageAt = now;
+
+    // sanitize — reject anything that doesn't pass validation
+    const text = sanitize(raw);
+    if (!text) return;
+
     io.emit("messageFromServerToAllClients", {
       senderId: socket.id,
       text,
     });
   });
 
-  // send the updated user list to every client whenever someone leaves
   socket.on("disconnect", () => {
     console.log(socket.id, "disconnected — total:", io.sockets.sockets.size);
     broadcastUserList();
