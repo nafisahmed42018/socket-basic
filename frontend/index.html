@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChatRoom</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+
+    <!-- full-page layout wrapper -->
+    <div class="app">
+
+      <!-- left sidebar: room info + connected users -->
+      <aside class="sidebar">
+        <div class="sidebar__brand">
+          <div class="brand__dot"></div>
+          <span>ChatRoom</span>
+        </div>
+
+        <div class="sidebar__section-label">Channel</div>
+        <div class="sidebar__channel">
+          <span class="channel__hash">#</span>
+          <span>general</span>
+        </div>
+
+        <div class="sidebar__section-label">Online</div>
+        <!-- populated by script.js when users connect/disconnect -->
+        <ul class="sidebar__users" id="user-list"></ul>
+      </aside>
+
+      <!-- main chat panel -->
+      <main class="chat">
+
+        <!-- top bar showing current channel and live count -->
+        <header class="chat__header">
+          <div class="chat__header-left">
+            <span class="channel__hash header__hash">#</span>
+            <span class="chat__channel-name">general</span>
+          </div>
+          <div class="chat__header-right">
+            <span class="connection-dot" id="connection-dot"></span>
+            <span class="connection-label" id="connection-label">Connecting…</span>
+          </div>
+        </header>
+
+        <!-- scrollable message feed -->
+        <ul class="chat__messages" id="messages"></ul>
+
+        <!-- system notification bar (join/leave events) -->
+        <div class="chat__notification" id="notification"></div>
+
+        <!-- message input bar -->
+        <form class="chat__form" id="messages-form">
+          <input
+            class="chat__input"
+            id="user-message"
+            type="text"
+            placeholder="Message #general"
+            autocomplete="off"
+            maxlength="500"
+          />
+          <button class="chat__send" type="submit" aria-label="Send">
+            <!-- paper-plane icon, pure SVG — no external icon library needed -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.min.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

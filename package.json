@@ -1,0 +1,26 @@
+{
+  "name": "chat-room",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/nafisahmed42018/socket-basic#readme",
+  "bugs": {
+    "url": "https://github.com/nafisahmed42018/socket-basic/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nafisahmed42018/socket-basic.git"
+  },
+  "license": "ISC",
+  "author": "nafis",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+  
+}
