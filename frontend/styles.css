@@ -191,9 +191,45 @@ html, body {
 .chat__header-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* leave / rejoin toggle button */
+.btn-leave {
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-leave:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* when the user is disconnected, show the rejoin variant in accent colour */
+.btn-leave.btn-leave--rejoin {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-leave.btn-leave--rejoin:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* dim the input area while disconnected so it's clear messages can't be sent */
+.chat__form.disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* connection status dot in header */

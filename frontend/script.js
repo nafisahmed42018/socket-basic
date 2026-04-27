@@ -7,6 +7,7 @@ const form            = document.getElementById("messages-form");
 const input           = document.getElementById("user-message");
 const connectionDot   = document.getElementById("connection-dot");
 const connectionLabel = document.getElementById("connection-label");
+const toggleBtn       = document.getElementById("toggle-connection");
 const notification    = document.getElementById("notification");
 const userListEl      = document.getElementById("user-list");
 
@@ -77,18 +78,41 @@ function el(tag, { className, text, style } = {}) {
 
 // ─── Connection status ────────────────────────────────────────────────────────
 function setConnectionStatus(status) {
-  connectionDot.className = "connection-dot " + status;
-  connectionLabel.textContent =
-    status === "connected" ? "Connected" : "Disconnected";
+  const connected = status === "connected";
+
+  connectionDot.className   = "connection-dot " + status;
+  connectionLabel.textContent = connected ? "Connected" : "Disconnected";
+
+  // swap button between "Leave" (red) and "Rejoin" (blue) based on state
+  toggleBtn.textContent = connected ? "Leave" : "Rejoin";
+  toggleBtn.classList.toggle("btn-leave--rejoin", !connected);
+
+  // block the input form while disconnected — no point trying to send messages
+  form.classList.toggle("disabled", !connected);
 }
 
 socket.on("connect", () => {
   myUsername = nameForId(socket.id);
   setConnectionStatus("connected");
+  showNotification("You joined #general");
 });
 
 socket.on("disconnect", () => {
   setConnectionStatus("disconnected");
+  // clear the sidebar — we no longer receive user list updates while offline
+  userListEl.innerHTML = "";
+});
+
+// ─── Leave / Rejoin ───────────────────────────────────────────────────────────
+toggleBtn.addEventListener("click", () => {
+  if (socket.connected) {
+    // voluntary disconnect — tells the server this socket is leaving
+    socket.disconnect();
+    showNotification("You left #general. Click Rejoin to come back.");
+  } else {
+    // reconnect using the same socket instance; socket.io re-runs the handshake
+    socket.connect();
+  }
 });
 
 // ─── System notifications ─────────────────────────────────────────────────────

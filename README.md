@@ -11,7 +11,7 @@ A real-time chat room built with **Node.js**, **Express**, and **Socket.IO**. Mu
 | Server    | Node.js + Express 5               |
 | Realtime  | Socket.IO 4                       |
 | Frontend  | Vanilla HTML, CSS, JavaScript     |
-| Transport | WebSocket (falls back to polling) |
+| Transport | WebSocket (falls back to long-polling) |
 
 No frontend framework, no build step, no bundler.
 
@@ -64,20 +64,21 @@ Browser A                    Node.js Server                 Browser B
     │                              │                              │
     │── connect (WebSocket) ──────►│◄──────── connect ───────────│
     │                              │                              │
-    │                              │─── userList [A, B] ────────►│
-    │◄─── userList [A, B] ────────│                              │
+    │                              │──── userList [A, B] ───────►│
+    │◄──── userList [A, B] ───────│                              │
     │                              │                              │
-    │── messageFromClient ────────►│                              │
-    │                              │─── messageToAllClients ─────►│
-    │◄─── messageToAllClients ────│                              │
+    │── messageFromClient ────────►│ validate + sanitize         │
+    │                              │──── messageToAllClients ────►│
+    │◄──── messageToAllClients ───│                              │
     │                              │                              │
-    │── disconnect ───────────────►│                              │
-    │                              │─── userList [B] ────────────►│
+    │── disconnect ───────────────►│ removes A from socket map   │
+    │                              │──── userList [B] ───────────►│
 ```
 
-1. Every browser that visits the page opens a Socket.IO connection.
-2. The server maintains the list of connected socket IDs and broadcasts it on every join/leave.
-3. When a user sends a message the server re-broadcasts it to **all** connected clients, including the sender, with the sender's socket ID attached so each client can style self vs. others differently.
+1. Every browser that visits the page opens a Socket.IO connection. Socket.IO starts with HTTP long-polling and upgrades to WebSocket automatically.
+2. The server holds a live map of every connected socket (`io.sockets.sockets`). It broadcasts the full ID list to all clients on every join and leave — no manual tracking needed.
+3. When a user sends a message the server validates and sanitizes it, then re-broadcasts it to **all** connected clients with the sender's socket ID attached so each client can style self vs. others differently.
+4. When a socket disconnects (voluntarily or due to a network drop) Socket.IO removes it from the map before firing the `disconnect` event, so `broadcastUserList()` already sees the updated list.
 
 ---
 
@@ -93,7 +94,7 @@ Browser A                    Node.js Server                 Browser B
 - Each message shows the sender name and timestamp.
 
 ### Message grouping
-- Consecutive messages from the same sender are visually grouped — the name and timestamp are only shown on the first message in a run, keeping the feed clean.
+- Consecutive messages from the same sender are visually grouped — the name and timestamp are only shown on the first in a run, keeping the feed clean.
 
 ### Auto-generated guest identities
 - Each connection is automatically assigned a guest name derived from its socket ID (e.g. `Guest-3f2a`).
@@ -108,14 +109,49 @@ Browser A                    Node.js Server                 Browser B
 - A dot in the top-right of the chat panel shows live connection state.
 - Green = connected, red = disconnected.
 
-### Join / leave notifications
-- A notification bar above the input briefly shows when a user connects or disconnects, then fades out automatically.
+### Leave and rejoin
+- A **Leave** button in the header voluntarily disconnects the socket.
+- The server is notified immediately, the sidebar updates for all other users, and the input is disabled.
+- Clicking **Rejoin** reconnects the same socket instance without a page reload.
 
-### XSS protection
-- All user-supplied message text is HTML-escaped before it is inserted into the DOM, preventing script injection attacks.
+### Join / leave notifications
+- A notification bar briefly shows when you join or leave, then fades out automatically.
+
+### Input sanitization and XSS protection
+Both the client and server independently sanitize every message:
+
+| Check | Client | Server |
+|---|---|---|
+| Must be a string | — | yes — non-strings are dropped |
+| Strip control characters (0x00–0x1F) | yes | yes |
+| Trim whitespace | yes | yes |
+| Reject blank after cleanup | yes | yes |
+| Max 500 characters | yes (`maxlength` + JS) | yes |
+| Rate limit (max 5 msg/sec per socket) | — | yes |
+
+On the client, all dynamic content is written to the DOM via `textContent` or validated DOM methods — never `innerHTML` with unsanitized values — so `<script>` tags and `onerror=` attributes in messages are always rendered as plain text.
 
 ### Responsive layout
 - The sidebar is hidden on screens narrower than 640 px so the chat panel fills the full viewport on mobile.
 
 ### No external dependencies on the frontend
 - Zero npm packages, frameworks, or CDN links on the client side. Pure HTML, CSS, and JavaScript. The only external script is `socket.io.min.js`, served directly by the Socket.IO server itself.
+
+---
+
+## References
+
+### WebSocket
+- [MDN — The WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) — browser WebSocket API reference
+- [MDN — Writing WebSocket client applications](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications)
+- [RFC 6455 — The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) — the formal spec defining the upgrade handshake and frame format
+
+### Socket.IO
+- [Socket.IO — Official docs](https://socket.io/docs/v4/) — v4 documentation (server + client API)
+- [Socket.IO — How it works](https://socket.io/docs/v4/how-it-works/) — transport negotiation, long-polling fallback, packet format
+- [Socket.IO — Server API](https://socket.io/docs/v4/server-api/) — `io`, `socket`, rooms, namespaces
+- [Socket.IO — Client API](https://socket.io/docs/v4/client-api/) — `io()`, `socket.connect()`, `socket.disconnect()`, events
+- [Socket.IO — Emit cheatsheet](https://socket.io/docs/v4/emit-cheatsheet/) — quick reference for broadcast patterns
+
+### Express
+- [Express 5 — Official docs](https://expressjs.com/en/5x/api.html) — API reference for the HTTP server layer
